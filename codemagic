@@ -1,0 +1,174 @@
+workflows:
+  flutter-ios-ci:
+    name: Flutter iOS CI
+    instance_type: mac_mini_m1
+    max_build_duration: 30
+
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: false
+      cancel_previous_builds: true
+
+    environment:
+      flutter: 3.22.2
+      xcode: latest
+      cocoapods: default
+      groups:
+        - Mobile
+
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+
+    working_directory: mobile-app
+
+    scripts:
+      - name: Create .env file
+        script: |
+          echo "HASHNODE_PUBLICATION_ID=$HASHNODE_PUBLICATION_ID" > .env
+          echo "ALGOLIAAPPID=$ALGOLIAAPPID" >> .env
+          echo "ALGOLIAKEY=$ALGOLIAKEY" >> .env
+          echo "AUTH0_DOMAIN=$AUTH0_DOMAIN" >> .env
+          echo "AUTH0_CLIENT_ID=$AUTH0_CLIENT_ID" >> .env
+
+      - name: Setup FlutterFire CLI
+        script: dart pub global activate flutterfire_cli
+
+      - name: Install dependencies
+        script: flutter pub get
+
+      - name: Run Static Code Analysis and Formatting
+        script: |
+          flutter format --set-exit-if-changed .
+          flutter analyze
+        ignore_failure: false
+
+      - name: Install applesimutils
+        script: |
+          brew tap wix/brew
+          brew install applesimutils
+
+      - name: Boot iOS simulator
+        script: |
+          xcrun simctl shutdown all
+          xcrun simctl boot "iPhone 15 Pro Max"
+          xcrun simctl bootstatus "iPhone 15 Pro Max"
+
+      - name: Run integration tests
+        script: dart integration_test_runner.dart --ios
+
+      - name: Run Unit Tests
+        script: flutter test
+        ignore_failure: false
+
+      - name: Move screenshots to artifacts
+        script: cp -r screenshots $CM_EXPORT_DIR
+        ignore_failure: true
+
+      - name: Build iOS app
+        script: flutter build ipa --release --no-codesign
+
+    publishing:
+      email:
+        recipients:
+          - niraj@freecodecamp.org
+
+  flutter-ios-deploy:
+    name: Deploy iOS App
+    instance_type: mac_mini_m1
+    max_build_duration: 30
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: prod
+          include: true
+      cancel_previous_builds: true
+
+    environment:
+      flutter: 3.22.2
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: org.freecodecamp.ios
+      groups:
+        - Mobile
+
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+
+    working_directory: mobile-app
+
+    integrations:
+      app_store_connect: CodeMagic CI
+
+    scripts:
+      - name: Create .env file
+        script: |
+          echo "HASHNODE_PUBLICATION_ID=$HASHNODE_PUBLICATION_ID" > .env
+          echo "ALGOLIAAPPID=$ALGOLIAAPPID" >> .env
+          echo "ALGOLIAKEY=$ALGOLIAKEY" >> .env
+          echo "AUTH0_DOMAIN=$AUTH0_DOMAIN" >> .env
+          echo "AUTH0_CLIENT_ID=$AUTH0_CLIENT_ID" >> .env
+
+      - name: Setup FlutterFire CLI
+        script: dart pub global activate flutterfire_cli
+
+      - name: Install dependencies
+        script: flutter pub get
+
+      - name: Run Static Code Analysis and Formatting
+        script: |
+          flutter format --set-exit-if-changed .
+          flutter analyze
+        ignore_failure: false
+
+      - name: Install applesimutils
+        script: |
+          brew tap wix/brew
+          brew install applesimutils
+
+      - name: Boot iOS simulator
+        script: |
+          xcrun simctl shutdown all
+          xcrun simctl boot "iPhone 15 Pro Max"
+          xcrun simctl bootstatus "iPhone 15 Pro Max"
+
+      - name: Run integration tests
+        script: dart integration_test_runner.dart --ios
+
+      - name: Run Unit Tests
+        script: flutter test
+        ignore_failure: false
+
+      - name: Move screenshots to artifacts
+        script: cp -r screenshots $CM_EXPORT_DIR
+        ignore_failure: true
+
+      - name: Set up code signing identities
+        script: xcode-project use-profiles
+
+      - name: Build iOS app
+        script: flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+
+    publishing:
+      email:
+        recipients:
+          - niraj@freecodecamp.org
+          - sem@freecodecamp.org
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
